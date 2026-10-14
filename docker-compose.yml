@@ -1,0 +1,55 @@
+# Alternative for a self-hosted always-on FastAPI server. Flutter static web lives
+# on Cloudflare Pages and the video bytes live in Bunny Stream, not this VM.
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-kisa}
+      POSTGRES_USER: ${POSTGRES_USER:-kisa}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [private]
+  api:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      APP_ENV: production
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-kisa}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-kisa}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      ADMIN_API_KEY: ${ADMIN_API_KEY:?Set ADMIN_API_KEY in .env}
+      ADMIN_DASHBOARD_PASSWORD: ${ADMIN_DASHBOARD_PASSWORD:?Set ADMIN_DASHBOARD_PASSWORD in .env}
+      BASE_URL: ${BASE_URL:?Set HTTPS API URL}
+      CORS_ORIGINS: ${CORS_ORIGINS:?Set allowed Cloudflare Pages HTTPS origins}
+      DEMO_MODE: 'false'
+      SEED_DEMO: 'false'
+      PAYMENT_MODE: ${PAYMENT_MODE:-disabled}
+      FREE_EPISODES: ${FREE_EPISODES:-8}
+      EPISODE_COST_COINS: ${EPISODE_COST_COINS:-10}
+      TOKEN_PACK_TZS: ${TOKEN_PACK_TZS:-1000}
+      TOKEN_PACK_COINS: ${TOKEN_PACK_COINS:-30}
+      BUNNY_STREAM_LIBRARY_ID: ${BUNNY_STREAM_LIBRARY_ID:?Set Bunny Stream library ID}
+      BUNNY_STREAM_API_KEY: ${BUNNY_STREAM_API_KEY:?Set Bunny Stream library API key}
+      BUNNY_STREAM_TOKEN_KEY: ${BUNNY_STREAM_TOKEN_KEY:?Set Bunny Stream embed signing key}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+    ports:
+      - '127.0.0.1:8000:8000'
+    networks: [private]
+  # Add an HTTPS reverse proxy (Nginx, Caddy, Cloudflare Tunnel, etc.) in front.
+networks:
+  private:
+volumes:
+  pgdata:

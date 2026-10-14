@@ -1,0 +1,17 @@
+.env
+.env.*
+!.env.production.example
+!.env.pwa.example
+!.env.example
+__pycache__/
+.pytest_cache/
+*.pyc
+*.db
+.dart_tool/
+.flutter-plugins*
+**/build/
+config/*.json
+*.jks
+*.keystore
+kisa_android_build/
+.kisa-backups/

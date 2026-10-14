@@ -1,0 +1,14 @@
+/index.html
+  Cache-Control: no-cache, no-store, must-revalidate
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Content-Type-Options: nosniff
+
+/manifest.json
+  Cache-Control: public, max-age=300
+
+/kisa-sw.js
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/*
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Content-Type-Options: nosniff

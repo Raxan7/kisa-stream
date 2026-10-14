@@ -1,0 +1,56 @@
+# FastAPI only; static Flutter PWA is hosted separately on Cloudflare Pages.
+services:
+  - type: web
+    name: kisa-stream-api
+    runtime: docker
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: DEMO_MODE
+        value: 'false'
+      - key: SEED_DEMO
+        value: 'false'
+      - key: PAYMENT_MODE
+        value: disabled
+      - key: FREE_EPISODES
+        value: '8'
+      - key: EPISODE_COST_COINS
+        value: '10'
+      - key: TOKEN_PACK_TZS
+        value: '1000'
+      - key: TOKEN_PACK_COINS
+        value: '30'
+      - key: VIDEO_STORAGE
+        value: local
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ADMIN_API_KEY
+        generateValue: true
+      - key: ADMIN_DASHBOARD_PASSWORD
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: BASE_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: BUNNY_STREAM_LIBRARY_ID
+        sync: false
+      - key: BUNNY_STREAM_API_KEY
+        sync: false
+      - key: BUNNY_STREAM_TOKEN_KEY
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: '465'
+      - key: SMTP_FROM
+        sync: false
+      - key: SMTP_USERNAME
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false

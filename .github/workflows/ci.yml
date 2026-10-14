@@ -1,0 +1,46 @@
+name: KISA checks
+on: [push, pull_request]
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r backend/requirements.txt pytest
+      - run: python -m pytest -q
+        working-directory: backend
+  flutter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Scaffold and static checks
+        run: bash scripts/bootstrap_flutter.sh /tmp/kisa-build
+      - name: Build Android demo APK
+        run: flutter build apk --debug --dart-define=API_BASE_URL=http://10.0.2.2:8000 --dart-define=BILLING_MODE=demo
+        working-directory: /tmp/kisa-build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kisa-debug-apk
+          path: /tmp/kisa-build/build/app/outputs/flutter-apk/app-debug.apk
+
+  pwa:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Compile PWA, analyze and test Flutter
+        run: |
+          API_BASE_URL=https://api.example.com \
+          BILLING_MODE=clickpesa \
+          bash scripts/build_pwa.sh /tmp/kisa-pwa
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kisa-pwa-static-build
+          path: /tmp/kisa-pwa/build/web
