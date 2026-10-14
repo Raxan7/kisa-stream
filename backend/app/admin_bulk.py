@@ -8,6 +8,7 @@ from __future__ import annotations
 import html
 import json
 import re
+import logging
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
@@ -68,7 +69,7 @@ def _prepare_payload(payload):
         _validate_files(items, start)
     except (TypeError, ValueError) as exc:
         raise HTTPException(422, 'Invalid batch') from exc
-    for flag in ('create_series', 'replace_unlinked'):
+    for flag in ('create_series', 'replace_unlinked', 'auto_publish'):
         if type(payload.get(flag, False)) is not bool:
             raise HTTPException(422, f'{flag} must be a boolean')
     if payload.get('create_series', False):
@@ -94,6 +95,7 @@ async def prepare_batch(request: Request):
     slug, start, files = _prepare_payload(payload)
     replace = payload.get('replace_unlinked', False)
     create_series = payload.get('create_series', False)
+    auto_publish = payload.get('auto_publish', False)
     try:
         with main.writing() as db:
             show = db.get(main.Show, slug)
@@ -136,6 +138,7 @@ async def prepare_batch(request: Request):
                                       title=file['title'].strip(), duration_seconds=file.get('duration_seconds', 75),
                                       is_published=False)
                     db.add(ep)
+                ep.auto_publish_when_ready = auto_publish
                 result.append({'episode_id':episode_id, 'number':number, 'action':action, 'title':ep.title})
             # A fully replaced sample series should not appear in the public
             # catalogue until its first real video is successfully published.
@@ -211,6 +214,7 @@ def dashboard_html(request: Request) -> HTMLResponse:
     return HTMLResponse(f'''<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#12101b">
 <title>KISA Studio · Admin</title>
+<link rel="icon" href="/favicon.ico" sizes="any">
 <link rel="stylesheet" href="/admin/assets/automation.css">
 <script defer src="/admin/assets/automation.js"></script></head>
 <body data-csrf="{_esc(ctx['csrf'])}"><div class="shell">
@@ -236,7 +240,7 @@ def dashboard_html(request: Request) -> HTMLResponse:
 <label class="check"><input id="auto-publish" type="checkbox" checked><span>Automatically publish each episode when Bunny finishes processing</span></label></div>
 <div class="action-row"><button class="primary action-main" id="start-batch" type="button">Start all uploads <span>→</span></button><button class="secondary" id="retry-failed" type="button" hidden>Retry failed files ↻</button><span id="overall-progress">Nothing uploading yet.</span></div></div>
 <div id="batch-status" class="batch-status" role="status" aria-live="polite" hidden></div>
-<p class="hint"><b>How it works:</b> Upload to Bunny happens directly from your browser—not through FastAPI. Keep this tab open while files are transferring. Bunny continues encoding afterward. Refresh the library to publish any remaining drafts later.</p></section>
+<p class="hint"><b>How it works:</b> Upload to Bunny happens directly from your browser—not through FastAPI. Keep this tab open while files are transferring. Bunny continues encoding afterward. Bunny continues processing after you leave. Automatic publishing is handled by the backend if enabled; you can also review drafts here.</p></section>
 <section class="section-panel" id="library"><div class="section-heading"><div><span class="eyebrow">02 · CONTENT LIBRARY</span><h2>All episodes</h2><p>Find what's ready, what's missing video, and what still needs publishing.</p></div><div class="library-actions"><button type="button" class="secondary" id="publish-ready">Publish ready drafts ✓</button><button type="button" class="secondary" id="refresh-library">Refresh library ↻</button></div></div>
 <div class="filters"><input id="search-episodes" placeholder="Search episodes…" aria-label="Search episodes"><select id="filter-series" aria-label="Filter series"><option value="">All series</option>{cards.replace('<option value="__new__">＋ Create a new movie</option>','')}</select><select id="filter-status" aria-label="Filter status"><option value="">All statuses</option><option value="warning">Missing video</option><option value="pending">Processing / review</option><option value="good">Live</option><option value="muted">Draft</option></select></div>
 <div class="table-wrap"><table><thead><tr><th>EP</th><th>Episode</th><th>Status</th><th>Actions</th></tr></thead><tbody id="episodes-table">{''.join(rows)}</tbody></table></div><p id="no-rows" hidden>No episodes match your filters.</p></section>
@@ -244,7 +248,7 @@ def dashboard_html(request: Request) -> HTMLResponse:
 <form method="post" action="/admin/bunny/link" class="advanced-form"><input type="hidden" name="csrf" value="{_esc(ctx['csrf'])}"><label>Episode ID <input name="episode" required placeholder="secret-wedding-1"></label><label>Bunny video GUID <input name="video_id" required placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"></label><button type="submit" class="secondary">Verify and link</button></form></details></section>
 <footer>KISA Studio · Content operations, simplified</footer></main></div></body></html>''', headers={
         'Cache-Control':'no-store', 'X-Frame-Options':'DENY', 'X-Content-Type-Options':'nosniff',
-        'Content-Security-Policy':"default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self' https://video.bunnycdn.com; form-action 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'"
+        'Content-Security-Policy':"default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self' https://video.bunnycdn.com; form-action 'self'; media-src 'self' blob:; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'"
     })
 
 @router.post('/admin/bulk/publish-ready')
@@ -293,3 +297,47 @@ async def publish_ready(request: Request):
                     show.is_published = True
                 published.append(episode_id)
     return {'published':published,'waiting':waiting,'errors':errors}
+
+
+def publish_if_ready(episode_id: str, video_id: str) -> bool:
+    """Publish only an opted-in, unchanged, finished Bunny video.
+
+    Caller must have verified the exact video's Bunny status is FINISHED (4).
+    Rechecks identifiers in a DB transaction to prevent stale upload races.
+    """
+    from . import main
+    with main.writing() as db:
+        ep = db.get(main.Episode, episode_id)
+        if not (ep and ep.auto_publish_when_ready and not ep.is_published
+                and ep.bunny_video_id == video_id):
+            return bool(ep and ep.is_published and ep.bunny_video_id == video_id)
+        ep.is_published = True
+        show = db.get(main.Show, ep.show_id)
+        if show:
+            show.is_published = True
+        return True
+
+
+def reconcile_auto_publish(limit: int = 30) -> int:
+    """Idempotent server-side scan; no open browser tab required.
+
+    A sleeping free-tier host only runs this after it wakes. A permanent,
+    independently scheduled worker or signed Bunny webhook is recommended
+    for prompt publication regardless of API activity.
+    """
+    from . import main, bunny_stream
+    with main.SessionLocal() as db:
+        stmt = select(main.Episode.id, main.Episode.bunny_video_id).where(
+            main.Episode.is_published.is_(False),
+            main.Episode.auto_publish_when_ready.is_(True),
+            main.Episode.bunny_video_id.is_not(None)).limit(limit)
+        targets = list(db.execute(stmt))
+    count = 0
+    for episode_id, video_id in targets:
+        try:
+            if bunny_stream.status(video_id).get('status') == 4:
+                count += int(publish_if_ready(episode_id, video_id))
+        except bunny_stream.BunnyError as exc:
+            logging.getLogger(__name__).warning(
+                'Cannot reconcile Bunny processing for episode %s: %s', episode_id, exc)
+    return count

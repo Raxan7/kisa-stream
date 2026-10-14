@@ -10,12 +10,13 @@ import hmac
 import os
 import re
 import secrets
+from pathlib import Path
 import time
 from urllib.parse import quote
 
 import jwt
 from fastapi import APIRouter, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse, JSONResponse
 
 router = APIRouter()
 
@@ -46,7 +47,7 @@ def _escape(text):
 def _page(body: str, title: str = 'Admin'):
     return HTMLResponse('''<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>KISA Admin</title>
-<script defer src="/admin/assets/bunny-upload.js"></script>
+<link rel="icon" href="/favicon.ico" sizes="any"><script defer src="/admin/assets/bunny-upload.js"></script>
 <style>
 :root{color-scheme:dark}body{margin:0;font:15px system-ui;color:#efedf3;background:#100f19}
 main{max-width:1040px;margin:auto;padding:20px}h1{letter-spacing:3px}h2{font-size:20px;margin-top:30px}
@@ -58,7 +59,7 @@ button,.button{display:inline-block;padding:12px 18px;margin-top:12px;background
 a{color:#ff799a}.pill{font-size:11px;color:#93e5b8}
 </style></head><body><main><h1>KISA <span style="color:#ff527b">/ Admin</span></h1>'''+body+'</main></body></html>',
     headers={'Cache-Control':'no-store', 'X-Frame-Options':'DENY',
-             'Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; connect-src 'self' https://video.bunnycdn.com; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"})
+             'Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; connect-src 'self' https://video.bunnycdn.com; form-action 'self'; media-src 'self' blob:; base-uri 'none'; frame-ancestors 'none'"})
 
 
 def _hidden(csrf):return f'<input type="hidden" name="csrf" value="{_escape(csrf)}">'
@@ -68,6 +69,21 @@ def _safe_slug(value: str):
     if not re.fullmatch('[a-z0-9-]{3,48}',value):
         raise HTTPException(422, 'IDs use lowercase letters, numbers and hyphens')
     return value
+
+@router.get('/favicon.ico')
+def admin_favicon():
+    return FileResponse(Path(__file__).with_name('admin-favicon.ico'),
+                        media_type='image/x-icon', headers={'Cache-Control': 'public, max-age=86400'})
+
+
+@router.get('/manifest.json')
+def admin_manifest():
+    # Admin stays a regular browser page. The viewer PWA manifest is hosted on Pages.
+    return JSONResponse({'name':'KISA Studio', 'short_name':'KISA Admin',
+                         'start_url':'/admin', 'display':'browser',
+                         'theme_color':'#100f19', 'background_color':'#100f19'},
+                        headers={'Cache-Control':'public, max-age=3600'})
+
 
 @router.get('/admin', response_class=HTMLResponse)
 def homepage(request:Request):
@@ -208,14 +224,19 @@ async def start_bunny_upload(request: Request):
         try:
             remote = bunny_stream.status(video_id)
         except bunny_stream.BunnyError as exc:
-            raise HTTPException(503, 'Bunny video status is unavailable') from exc
-        if remote.get('status') not in (0, 6):
-            raise HTTPException(409, 'Bunny has already received this video. Check encoding status.')
+            raise HTTPException(503, f'Cannot check Bunny video: {exc}') from exc
+        if remote.get('status') in (1, 2, 3, 4):
+            # A completed upload is not a failed upload. Keep the same Bunny
+            # GUID and let the dashboard poll until encoding is finished.
+            return {'state': 'processing', 'episode_id': episode, 'video_id': video_id,
+                    'message': 'Video was received by Bunny. It will go live when processing finishes.'}
+        if remote.get('status') in (5, 8):
+            raise HTTPException(409, 'Bunny reported a failed video. Please inspect it in Bunny and retry.')
     else:
         try:
             created = bunny_stream.create(title)
         except bunny_stream.BunnyError as exc:
-            raise HTTPException(503, 'Bunny video creation failed') from exc
+            raise HTTPException(503, f'Bunny could not create this video: {exc}') from exc
         video_id = created['guid']
         with main.writing() as db:
             ep = db.get(main.Episode, episode)
@@ -228,7 +249,7 @@ async def start_bunny_upload(request: Request):
     try:
         return bunny_stream.tus_upload_ticket(video_id)
     except bunny_stream.BunnyError as exc:
-        raise HTTPException(503, 'Unable to generate Bunny upload signature') from exc
+        raise HTTPException(503, f'Cannot prepare upload: {exc}') from exc
 
 
 @router.get('/admin/videos/bunny/status/{episode_id}')
@@ -238,18 +259,36 @@ def admin_bunny_status(request: Request, episode_id: str):
     with main.SessionLocal() as db:
         ep = db.get(main.Episode, episode_id)
         if not ep: raise HTTPException(404, 'Episode missing')
-        if not ep.bunny_video_id: raise HTTPException(409, 'Upload a Bunny video first')
+        if not ep.bunny_video_id:
+            return {'episode_id': episode_id, 'ready': False, 'state': 'awaiting_upload',
+                    'status': None, 'encode_progress': 0,
+                    'message': 'Episode created. Select an MP4 to begin uploading.'}
         video_id = ep.bunny_video_id
     try:
         result = bunny_stream.status(video_id)
     except bunny_stream.BunnyError as exc:
-        raise HTTPException(503, 'Bunny encoding status unavailable') from exc
+        raise HTTPException(503, f'Bunny status temporarily unavailable: {exc}') from exc
+    status = result.get('status')
+    ready = status == 4
+    published = False
+    if ready:
+        # An admin can close the tab after files finish transferring; the
+        # server's reconciliation worker also checks these durable flags.
+        from .admin_bulk import publish_if_ready
+        published = publish_if_ready(episode_id, video_id)
+    state = ('ready' if ready else 'failed' if status in (5, 8)
+             else 'processing')
+    message = ('Video is live.' if published else
+               'Bunny finished processing. Ready to publish.' if ready else
+               'Bunny could not process this video. Check the file and retry.' if state == 'failed' else
+               'Video is safely with Bunny. Processing continues; it will go live when ready.')
     return {
         'episode_id': episode_id,
-        'ready': result.get('status') == 4,
-        'status': result.get('status'),
+        'ready': ready, 'published': published, 'state': state,
+        'status': status,
         'encode_progress': result.get('encodeProgress'),
         'length_seconds': result.get('length'),
+        'message': message,
     }
 
 
@@ -264,7 +303,18 @@ def admin_bunny_preview(request: Request, episode_id: str):
         video_id = ep.bunny_video_id
     try:
         if bunny_stream.status(video_id).get('status') != 4:
-            raise HTTPException(409, 'Wait until Bunny finishes encoding')
+            return HTMLResponse(
+                '<!doctype html><html><head><meta charset="utf-8">'
+                '<meta name="viewport" content="width=device-width,initial-scale=1">'
+                '<title>KISA · Preparing video</title></head>'
+                '<body style="background:#100f19;color:#fff;text-align:center;'
+                'font:16px system-ui;padding:15vh 20px">'
+                '<h1>Video is being processed</h1>'
+                '<p>Your upload is safe. Bunny is preparing the video. '
+                'It will go live once processing completes.</p>'
+                '<a style="color:#ff527b" href="/admin#library">Return to KISA Studio</a>'
+                '</body></html>', status_code=200, headers={'Cache-Control':'no-store',
+                'Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'"})
         url = bunny_stream.embed_url(video_id, ttl=900)
     except bunny_stream.BunnyError as exc:
         raise HTTPException(503, 'Bunny video preview unavailable') from exc

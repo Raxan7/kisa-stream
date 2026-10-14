@@ -44,8 +44,22 @@ def request(method: str, url: str, *, json=None, content=None, timeout=20) -> di
             json=json, content=content, timeout=timeout)
         response.raise_for_status()
         return response.json()
-    except (httpx.HTTPError, ValueError) as exc:
-        raise BunnyError('Bunny Stream request failed') from exc
+    except httpx.HTTPStatusError as exc:
+        code = exc.response.status_code
+        if code in (401, 403):
+            message = f'Bunny returned HTTP {code}. Check the Stream library ID, library API key, and account permissions on the server.'
+        elif code == 402:
+            message = 'Bunny returned HTTP 402. Check trial credits or account billing.'
+        elif code == 429:
+            message = 'Bunny rate-limited the request (HTTP 429). Please retry shortly.'
+        else:
+            message = f'Bunny returned HTTP {code}. Check Bunny Stream and retry.'
+        # Only the HTTP status is exposed; never include response bodies or secret headers.
+        raise BunnyError(message) from exc
+    except httpx.RequestError as exc:
+        raise BunnyError('Bunny Stream could not be reached. Check provider connectivity.') from exc
+    except ValueError as exc:
+        raise BunnyError('Bunny returned an invalid response.') from exc
 
 
 def valid_id(video_id: str) -> bool:

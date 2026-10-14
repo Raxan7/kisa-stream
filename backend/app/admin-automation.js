@@ -108,7 +108,7 @@
       const progress=document.createElement('span');progress.className='status-indicator';progress.textContent=item.progress?`${item.status} ${item.progress}%`:item.status;
       row.append(num,file,title,arrows,progress);list.append(row);
     }
-    const finished=state.files.filter(x=>['Published','Ready to publish','Waiting for encoding'].includes(x.status)).length;
+    const finished=state.files.filter(x=>['Published','Ready to publish','Waiting for encoding','Encoding'].includes(x.status) && x.progress===100).length;
     $('overall-progress').textContent=state.uploading?`${finished}/${state.files.length} sent to Bunny. Keep this tab open.`:'Review the list, then start uploads.';
   }
   const series=$('series');
@@ -233,8 +233,11 @@
               try{await publishEpisode(task.episode_id);task.status='Published';}
               catch(err){task.status='Ready to publish';task.error=toMessage(err);}
             }else{task.status='Ready to publish';}
-          }else if([5,8].includes(result.status)){task.status='Failed';task.error='Bunny processing failed';}
-          else task.status='Encoding';
+          }else if(result.state==='failed'){
+            task.status='Failed';task.error='Bunny reported a processing failure. Please retry or replace the video.';
+          }else{
+            task.status='Encoding'; task.error=null;
+          }
         }catch(error){task.error=toMessage(error);/* retry on next poll */}
       }
       renderFiles();
@@ -255,10 +258,14 @@
         } catch (_) { /* No linked asset yet: proceed with upload ticket. */ }
       }
       const ticket=await mutation('/admin/videos/bunny/start',{episode_id:task.episode_id,filename:task.file.name,size_bytes:task.file.size});
+      if(ticket.state === 'processing') {
+        task.progress=100; task.status='Encoding'; renderFiles(); return;
+      }
       await tusUpload(task,ticket);
       task.progress=100;task.status='Encoding';renderFiles();
     }catch(error){
       task.status='Failed';task.error=toMessage(error);renderFiles();
+      notify(`Upload of ${task.file.name} needs attention: ${task.error}`, true);
     }
   }
   async function startBatch() {
@@ -270,7 +277,8 @@
     if(!Number.isInteger(start)||start<1||start+state.files.length>10001)return notify('Invalid starting episode number.',true);
     const files=state.files.map(t=>({filename:t.file.name,size_bytes:t.file.size,title:t.title.trim(),duration_seconds:t.duration}));
     if(files.some(f=>!f.title))return notify('All episodes need a title.',true);
-    const body={slug,start_number:start,files,replace_unlinked:$('replace-existing').checked,create_series:isNew};
+    const body={slug,start_number:start,files,replace_unlinked:$('replace-existing').checked,
+      create_series:isNew,auto_publish:$('auto-publish').checked};
     if(isNew){body.series_title=$('new-title').value.trim();body.synopsis=$('new-description').value.trim();body.genre=$('new-genre').value.trim();}
     const btn=$('start-batch');btn.disabled=true;
     state.uploading=true;renderFiles();
@@ -291,7 +299,7 @@
       await processEncoding();
       const failed=state.tasks.filter(t=>t.status==='Failed');
       $('retry-failed').hidden=!failed.length;
-      notify(`${state.tasks.length-failed.length} file(s) transferred. ${failed.length} need retry. Bunny processing continues. ${$('auto-publish').checked?'Ready episodes will publish while this tab stays open.':'You can review and publish from the library.'}`,failed.length>0);
+      notify(`${state.tasks.length-failed.length} file(s) sent to Bunny. ${failed.length} need retry. ${$('auto-publish').checked?'Success! Bunny is processing your video(s). They will go live automatically when ready, even if you close this tab after transfers finish.':'Bunny is processing your video(s). You can publish them later from the library.'}`, failed.length>0);
     }catch(error){notify(toMessage(error),true);}
     finally{state.uploading=false;btn.disabled=false;renderFiles();}
   }

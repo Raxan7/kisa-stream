@@ -11,7 +11,7 @@ import secrets
 import subprocess
 import time
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, Any
@@ -113,6 +113,7 @@ class Episode(Base):
     # Existing database deployments add this nullable column via migrations/001_bunny_video.sql.
     bunny_video_id: Mapped[str | None] = mapped_column(String(64))
     is_published: Mapped[bool] = mapped_column(Boolean, default=True)
+    auto_publish_when_ready: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default='false')
     __table_args__ = (UniqueConstraint('show_id', 'number'), CheckConstraint('number > 0'),)
 
 class Entitlement(Base):
@@ -230,7 +231,38 @@ def seed():
                        duration_seconds=75,
                        filename='sample.mp4' if n <= 12 else None))
 
-app = FastAPI(title='KISA Streaming API', version='0.1.0', docs_url=None if os.getenv('APP_ENV') == 'production' else '/docs')
+@asynccontextmanager
+async def kisa_lifespan(_app):
+    """Reconcile queued publish-on-ready uploads even after the admin leaves."""
+    import threading
+    import logging
+    stop = threading.Event()
+    worker = None
+    if (os.getenv('BUNNY_AUTO_PUBLISH_ENABLED', 'true').lower() == 'true'
+            and os.getenv('BUNNY_STREAM_LIBRARY_ID')
+            and os.getenv('BUNNY_STREAM_API_KEY')):
+        interval = max(30, int(os.getenv('BUNNY_AUTO_PUBLISH_SECONDS', '60')))
+        def scan():
+            from .admin_bulk import reconcile_auto_publish
+            # Render Free may sleep. Scanning resumes after it wakes.
+            while not stop.wait(interval):
+                try:
+                    reconcile_auto_publish()
+                except Exception:
+                    logging.getLogger(__name__).exception('KISA auto-publish check failed')
+        worker = threading.Thread(target=scan, name='kisa-bunny-publisher', daemon=True)
+        worker.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        if worker:
+            worker.join(timeout=2)
+
+
+app = FastAPI(title='KISA Streaming API', version='0.1.0',
+              docs_url=None if os.getenv('APP_ENV') == 'production' else '/docs',
+              lifespan=kisa_lifespan)
 origins = [x.strip() for x in os.getenv('CORS_ORIGINS', '').split(',') if x.strip()]
 # Flutter web's localhost and 127.0.0.1 hosts are distinct browser origins.
 # Allow both in local development ONLY; never implicitly in production.

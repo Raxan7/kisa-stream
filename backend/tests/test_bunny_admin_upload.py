@@ -73,7 +73,7 @@ def test_admin_upload_rbac_csrf_resumable_status_publish(monkeypatch):
     before=api.post('/admin/episodes/publish',cookies=cookies,
                        data={'episode':'admin-upload-check-1','publish':'1','csrf':csrf})
     assert before.status_code == 409
-    assert api.get('/admin/videos/bunny/preview/admin-upload-check-1',cookies=cookies).status_code == 409
+    assert api.get('/admin/videos/bunny/preview/admin-upload-check-1',cookies=cookies).status_code == 200
     remote['status']=4
     remote['encodeProgress']=100
     assert api.get('/admin/videos/bunny/status/admin-upload-check-1',cookies=cookies).json()['ready'] is True

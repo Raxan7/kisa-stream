@@ -29,6 +29,7 @@ with engine.begin() as conn:
         },
         'episodes': {
             'bunny_video_id': 'VARCHAR(64)',
+            'auto_publish_when_ready': 'BOOLEAN NOT NULL DEFAULT FALSE',
             'is_published': 'BOOLEAN NOT NULL DEFAULT TRUE',
         },
     }
