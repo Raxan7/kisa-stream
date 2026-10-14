@@ -32,8 +32,8 @@
       });
     }
     // Flutter takes over the page; remove the static skeleton once it attaches its view.
-    new MutationObserver(function (obs) {
-      if (document.querySelector('flutter-view')) { document.getElementById('boot')?.remove(); obs.disconnect(); }
+    new MutationObserver(function (_records, observer) {
+      if (document.querySelector('flutter-view')) { document.getElementById('boot')?.remove(); observer.disconnect(); }
     }).observe(document.body, {childList:true,subtree:true});
   </script>
 </body>
