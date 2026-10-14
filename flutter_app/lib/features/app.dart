@@ -652,6 +652,30 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       setState((){});
     }
   }
+  // The Bunny iframe is a web platform view. Navigation controls must live
+  // outside its viewport so the iframe cannot consume their pointer events.
+  void _closePlayer() {
+    if (!mounted) return;
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop();
+    } else {
+      // A direct entry with no preceding route can still return to KISA Home.
+      navigator.pushReplacement<void, void>(
+        MaterialPageRoute<void>(builder: (_) => KisaRoot(store: widget.store)),
+      );
+    }
+  }
+
+  void _nextEpisode() {
+    if (selected < episodes.length - 1 && pages.hasClients) {
+      pages.nextPage(
+        duration: const Duration(milliseconds: 310),
+        curve: Curves.easeOutCubic,
+      );
+    }
+  }
+
   Future<void> unlock(KisaEpisode ep) async {
     try {
       await widget.store.unlock(ep.id);
@@ -671,7 +695,44 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
   }
   @override
   Widget build(BuildContext context){
-    return Scaffold(backgroundColor:Colors.black,body:episodes.isEmpty?
+    return Scaffold(
+      backgroundColor: Colors.black,
+      // Keep the navigation bar OUTSIDE the Bunny iframe / HtmlElementView.
+      // Flutter overlay buttons placed over iframes can appear but miss taps.
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        leading: IconButton(
+          tooltip: 'Back to series',
+          onPressed: _closePlayer,
+          icon: const Icon(Icons.arrow_back_rounded),
+        ),
+        titleSpacing: 0,
+        title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(widget.detail.show.title,
+            maxLines: 1, overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          Text(episodes.isEmpty ? 'No episodes yet' : 'Episode ${episodes[selected].number} of ${episodes.length}',
+            style: const TextStyle(color: Colors.white70, fontSize: 12)),
+        ]),
+        actions: [
+          if (selected < episodes.length - 1)
+            IconButton(
+              tooltip: 'Next episode',
+              onPressed: _nextEpisode,
+              icon: const Icon(Icons.skip_next_rounded),
+            ),
+          const Icon(Icons.toll_rounded, color: Color(0xFFFFCE6E), size: 18),
+          Padding(
+            padding: const EdgeInsets.only(left: 5, right: 14),
+            child: Center(child: Text('${widget.store.balance}',
+              style: const TextStyle(fontWeight: FontWeight.bold))),
+          ),
+        ],
+      ),
+      body: episodes.isEmpty ?
       const Center(child:Text('No episodes yet')):
       Stack(children:[PageView.builder(controller:pages,scrollDirection:Axis.vertical,
         itemCount:episodes.length,onPageChanged:(i)=>loadEpisode(i),
@@ -693,15 +754,6 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
           gradient:LinearGradient(begin:Alignment.topCenter,end:Alignment.bottomCenter,
           stops:const [0,.22,.74,1],colors:[Colors.black54,Colors.transparent,Colors.transparent,Colors.black87]))))),
         SafeArea(child:Padding(padding:const EdgeInsets.fromLTRB(12,6,16,15),child:Column(children:[
-          Row(children:[IconButton(onPressed:()=>Navigator.pop(context),
-            icon:const Icon(Icons.arrow_back_rounded,color:Colors.white)),
-            Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-              Text(widget.detail.show.title,maxLines:1,overflow:TextOverflow.ellipsis,
-                style:const TextStyle(fontWeight:FontWeight.bold,fontSize:17)),
-              Text('Episode ${episodes[selected].number} of ${episodes.length}',
-                style:const TextStyle(color:Colors.white70,fontSize:12))])),
-            const Icon(Icons.toll_rounded,color:Color(0xFFFFCE6E),size:19),const SizedBox(width:5),
-            Text('${widget.store.balance}',style:const TextStyle(fontWeight:FontWeight.bold))]),
           const Spacer(),
           if(starting)const CircularProgressIndicator(color:coral),
           if(!starting && !episodes[selected].isUnlocked)_locked(episodes[selected]),
@@ -719,11 +771,11 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
           Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
             Text('EP ${episodes[selected].number} · ${episodes[selected].title}',
               style:const TextStyle(fontWeight:FontWeight.w800,fontSize:17)),
-            const SizedBox(height:7),const Text('Swipe up for the next episode ↑',
-              style:TextStyle(color:Colors.white70,fontSize:12))])),
-            if(selected<episodes.length-1)IconButton(onPressed:()=>pages.nextPage(
-              duration:const Duration(milliseconds:300),curve:Curves.easeOutCubic),
-              icon:const Icon(Icons.keyboard_double_arrow_up_rounded,size:33,color:Colors.white))]),
+            const SizedBox(height:7),Text(
+              bunnyUrl != null ? 'Tap Next above to continue' : 'Swipe up for the next episode ↑',
+              style:const TextStyle(color:Colors.white70,fontSize:12))])),
+            if(selected<episodes.length-1)const Icon(
+              Icons.keyboard_double_arrow_up_rounded,size:30,color:Colors.white70)]),
           const SizedBox(height:9),if(video!=null&&video!.value.isInitialized)
             VideoProgressIndicator(video!,allowScrubbing:true,
               colors:const VideoProgressColors(playedColor:coral,bufferedColor:Colors.white38,
