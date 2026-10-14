@@ -28,3 +28,6 @@ flutter pub get
 flutter build web --release --no-wasm-dry-run \
   --dart-define="API_BASE_URL=${API_BASE_URL%/}" \
   --dart-define="BILLING_MODE=${BILLING_MODE}"
+
+# Ensure Pages deploys our caching rules.
+cp web/_headers build/web/_headers

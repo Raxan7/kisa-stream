@@ -1,0 +1,11 @@
+# Always check for new shell and service-worker code.
+/index.html
+  Cache-Control: no-cache, max-age=0, must-revalidate
+/flutter_bootstrap.js
+  Cache-Control: no-cache, max-age=0, must-revalidate
+/main.dart.js
+  Cache-Control: no-cache, max-age=0, must-revalidate
+/kisa-sw.js
+  Cache-Control: no-cache, max-age=0, must-revalidate
+/manifest.json
+  Cache-Control: no-cache, max-age=0, must-revalidate
