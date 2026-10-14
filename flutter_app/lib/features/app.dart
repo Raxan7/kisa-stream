@@ -621,7 +621,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                 height:video!.value.size.height,child:VideoPlayer(video!))):
               Container(decoration:BoxDecoration(gradient:LinearGradient(
                 colors:[parseHex(widget.detail.show.accent),ink,Colors.black],
-                begin:Alignment.topLeft,end:Alignment.bottomRight)))))),
+                begin:Alignment.topLeft,end:Alignment.bottomRight))))),
         Positioned.fill(child:IgnorePointer(child:DecoratedBox(decoration:BoxDecoration(
           gradient:LinearGradient(begin:Alignment.topCenter,end:Alignment.bottomCenter,
           stops:const [0,.22,.74,1],colors:[Colors.black54,Colors.transparent,Colors.transparent,Colors.black87]))))),
