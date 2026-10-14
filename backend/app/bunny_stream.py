@@ -88,7 +88,7 @@ def embed_url(video_id: str, ttl: int = 1200) -> str:
         raise BunnyError('Bunny embed signing key not configured')
     expires = int(time.time()) + ttl
     token = hashlib.sha256(f'{key}{video_id}{expires}'.encode()).hexdigest()
-    query = urlencode({'token': token, 'expires': str(expires), 'autoplay': 'true', 'responsive': 'true'})
+    query = urlencode({'token': token, 'expires': str(expires), 'autoplay': 'true', 'responsive': 'true', 'chromecast': 'false'})
     return f'https://player.mediadelivery.net/embed/{library_id()}/{video_id}?{query}'
 
 # Server-only direct-to-Bunny TUS signing. Never reveal the Stream API key.
