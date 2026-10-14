@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'api.dart';
 import 'models.dart';
@@ -6,6 +7,8 @@ class KisaStore extends ChangeNotifier {
   final KisaApi api;
   KisaStore(this.api);
   bool loading = true;
+  bool startingSlow = false;
+  bool initializing = false;
   String? error;
   int balance = 0;
   bool emailVerified = false;
@@ -20,13 +23,35 @@ class KisaStore extends ChangeNotifier {
   List<Map<String,dynamic>> entries = [];
 
   Future<void> initialize() async {
-    loading = true;error = null;notifyListeners();
+    if (initializing) return;
+    initializing = true;
+    loading = true;
+    startingSlow = false;
+    error = null;
+    notifyListeners();
+    final slowTimer = Timer(const Duration(seconds: 7), () {
+      if (loading) {
+        startingSlow = true;
+        notifyListeners();
+      }
+    });
     try {
       await api.initialize();
-      await Future.wait([reloadShows(),refreshMe(),refreshLibrary()]);
-    } catch(e) {
+      // Only the catalogue blocks Home. Personalization loads separately.
+      await reloadShows();
+    } catch (e) {
       error = e.toString();
-    } finally { loading = false;notifyListeners(); }
+    } finally {
+      slowTimer.cancel();
+      loading = false;
+      initializing = false;
+      notifyListeners();
+    }
+    if (error == null) {
+      // Wallet/library failures must not prevent viewers from browsing.
+      unawaited(refreshMe().catchError((Object _) {}));
+      unawaited(refreshLibrary().catchError((Object _) {}));
+    }
   }
 
   Future<void> refreshMe() async {
@@ -45,6 +70,18 @@ class KisaStore extends ChangeNotifier {
     shows=(response['items'] as List).map((e)=>KisaShow.fromJson(e as Map<String,dynamic>)).toList();
     notifyListeners();
   }
+  // Explore results are independent from the Home catalogue.
+  Future<List<KisaShow>> searchShows({String query='', String genre=''}) async {
+    final params = Uri(queryParameters: {
+      if (query.isNotEmpty) 'q': query,
+      if (genre.isNotEmpty) 'genre': genre,
+    }).query;
+    final response = await api.get('/v1/shows${params.isEmpty ? '' : '?$params'}');
+    return (response['items'] as List)
+        .map((e) => KisaShow.fromJson(e as Map<String,dynamic>))
+        .toList();
+  }
+
   Future<KisaDetail> detail(String showId) async => KisaDetail.fromJson(await api.get('/v1/shows/${Uri.encodeComponent(showId)}'));
   Future<void> refreshLibrary() async {
     final response=await api.get('/v1/library');

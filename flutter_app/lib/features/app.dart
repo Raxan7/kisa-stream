@@ -33,6 +33,7 @@ class KisaRoot extends StatefulWidget {
 }
 class _KisaRootState extends State<KisaRoot> {
   int index=0;
+  bool walletVisited=false;
   bool openedDeepLink=false;
   @override
   void initState() {
@@ -57,19 +58,29 @@ class _KisaRootState extends State<KisaRoot> {
   }
   @override
   Widget build(BuildContext context)=>AnimatedBuilder(animation:widget.store,builder:(context,_) {
-    if(widget.store.loading) return const Scaffold(body:Center(child:Column(
-      mainAxisSize:MainAxisSize.min,children:[Icon(Icons.play_circle_fill_rounded,color:coral,size:88),
-      SizedBox(height:18),Text('KISA',style:TextStyle(fontSize:35,fontWeight:FontWeight.w900,letterSpacing:8)),
-      SizedBox(height:20),CircularProgressIndicator(color:coral)])));
+    if(widget.store.loading) return Scaffold(body:Center(child:Padding(
+      padding:const EdgeInsets.symmetric(horizontal:28),
+      child:Column(mainAxisSize:MainAxisSize.min,children:[
+        const Icon(Icons.play_circle_fill_rounded,color:coral,size:78),
+        const SizedBox(height:14),
+        const Text('KISA',style:TextStyle(fontSize:35,fontWeight:FontWeight.w900,letterSpacing:8)),
+        const SizedBox(height:18),
+        const SizedBox(height:22,width:22,child:CircularProgressIndicator(strokeWidth:2.4,color:coral)),
+        const SizedBox(height:16),
+        Text(widget.store.startingSlow
+          ? 'Preparing KISA for you. Our free server is waking up; this may take a minute.'
+          : 'Finding great stories for you…',
+          textAlign:TextAlign.center,style:const TextStyle(color:pale,fontSize:13)),
+      ]))));
     if(widget.store.error!=null) return Scaffold(body:Center(child:Padding(
       padding:const EdgeInsets.all(30),child:Column(mainAxisSize:MainAxisSize.min,children:[
       const Icon(Icons.wifi_off_rounded,size:58,color:coral),const SizedBox(height:15),
       Text(widget.store.error!,textAlign:TextAlign.center),const SizedBox(height:16),
       FilledButton(onPressed:widget.store.initialize,child:const Text('Try again'))]))));
     return Scaffold(body:IndexedStack(index:index,children:[
-      DiscoverScreen(store:widget.store,onWallet:()=>setState(()=>index=3)),
+      DiscoverScreen(store:widget.store,onWallet:()=>setState(() {index=3; walletVisited=true;})),
       ExploreScreen(store:widget.store),LibraryScreen(store:widget.store),
-      WalletScreen(store:widget.store)]),
+      walletVisited ? WalletScreen(store:widget.store) : const SizedBox.shrink()]),
       bottomNavigationBar:SafeArea(top:false,child:Container(
         decoration:const BoxDecoration(color:Color(0xFF191825),border:Border(top:BorderSide(color:Color(0xFF292838)))),
         padding:const EdgeInsets.fromLTRB(8,6,8,7),child:Row(mainAxisAlignment:MainAxisAlignment.spaceEvenly,children:[
@@ -77,7 +88,11 @@ class _KisaRootState extends State<KisaRoot> {
           _nav(2,Icons.bookmark_rounded,'My List'),_nav(3,Icons.toll_rounded,'Coins')]))));
   });
   Widget _nav(int i,IconData icon,String label)=>Expanded(child:InkWell(
-    onTap:(){setState(()=>index=i);if(i==2)widget.store.refreshLibrary();if(i==3)widget.store.refreshWallet();},
+    onTap:(){
+      if (i == index) return;
+      setState(() { index=i; if (i==3) walletVisited=true; });
+      if (i==2) unawaited(widget.store.refreshLibrary().catchError((Object _) {}));
+    },
     borderRadius:BorderRadius.circular(16),child:Padding(padding:const EdgeInsets.symmetric(vertical:5),
       child:Column(mainAxisSize:MainAxisSize.min,children:[Icon(icon,color:index==i?coral:pale,size:25),
       const SizedBox(height:3),Text(label,style:TextStyle(color:index==i?coral:pale,fontSize:11,fontWeight:index==i?FontWeight.w700:FontWeight.w400))]))));
@@ -149,29 +164,49 @@ class DiscoverScreen extends StatelessWidget {
             decoration:BoxDecoration(color:panel,borderRadius:BorderRadius.circular(22)),
             child:Row(children:[const Icon(Icons.toll_rounded,color:Color(0xFFFFCA70),size:21),
               const SizedBox(width:7),Text('${store.balance}',style:const TextStyle(fontWeight:FontWeight.bold))])))]))),
-      if(all.isNotEmpty)SliverToBoxAdapter(child:Padding(padding:const EdgeInsets.symmetric(horizontal:17),
+      if(all.isEmpty) SliverFillRemaining(hasScrollBody:false,
+        child:Center(child:Padding(padding:const EdgeInsets.all(30),
+          child:Column(mainAxisSize:MainAxisSize.min,children:[
+            const Icon(Icons.movie_filter_rounded,color:coral,size:58),
+            const SizedBox(height:16),
+            const Text('New stories are on the way',
+              textAlign:TextAlign.center,style:TextStyle(fontWeight:FontWeight.w800,fontSize:22)),
+            const SizedBox(height:8),
+            const Text('Check back soon for short dramas worth watching.',
+              textAlign:TextAlign.center,style:TextStyle(color:pale)),
+            const SizedBox(height:14),
+            OutlinedButton.icon(onPressed:store.reloadShows,
+              icon:const Icon(Icons.refresh_rounded),label:const Text('Refresh stories')),
+          ])))),
+      if(all.isNotEmpty) SliverToBoxAdapter(child:Padding(
+        padding:const EdgeInsets.symmetric(horizontal:18),
         child:GestureDetector(onTap:()=>openDetail(context,store,all.first),
-        child:Stack(children:[Artwork(show:all.first,height:340,wide:true),
-          const Positioned(top:15,left:14,child:LabelPill('EDITOR’S PICK')),
-          Positioned(bottom:13,right:13,child:CircleAvatar(backgroundColor:coral,radius:25,
-            child:IconButton(onPressed:()=>openDetail(context,store,all.first),icon:const Icon(Icons.play_arrow_rounded,size:28,color:Colors.white))))])))),
-      const SliverToBoxAdapter(child:SectionHeading('Binge-worthy stories',subtitle:'Big emotions. One-minute episodes.')),
-      SliverToBoxAdapter(child:SizedBox(height:236,child:ListView.separated(
-        padding:const EdgeInsets.symmetric(horizontal:18),scrollDirection:Axis.horizontal,
-        itemCount:all.length,separatorBuilder:(_,__)=>const SizedBox(width:11),
-        itemBuilder:(context,i)=>GestureDetector(onTap:()=>openDetail(context,store,all[i]),
-          child:SizedBox(width:145,child:Artwork(show:all[i],height:220)))))),
-      const SliverToBoxAdapter(child:SectionHeading('Your next obsession')),
-      SliverList.builder(itemCount:all.length,itemBuilder:(context,i)=>Padding(
-        padding:const EdgeInsets.fromLTRB(19,0,19,12),child:InkWell(
-          onTap:()=>openDetail(context,store,all[i]),borderRadius:BorderRadius.circular(16),
-          child:Row(children:[SizedBox(width:88,child:Artwork(show:all[i],height:120)),
-            const SizedBox(width:15),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-              Text(all[i].title,style:const TextStyle(fontWeight:FontWeight.bold,fontSize:17)),
-              const SizedBox(height:5),Text(all[i].genre,style:const TextStyle(color:coral,fontSize:12)),
-              const SizedBox(height:7),Text(all[i].synopsis,maxLines:3,overflow:TextOverflow.ellipsis,
-                style:const TextStyle(color:pale,fontSize:12,height:1.4))]))])))),
-      const SliverToBoxAdapter(child:SizedBox(height:35))
+          child:Stack(children:[
+            Artwork(show:all.first,height:270,wide:true),
+            const Positioned(top:14,left:14,child:LabelPill('FEATURED')),
+            Positioned(bottom:14,right:14,child:CircleAvatar(backgroundColor:coral,radius:25,
+              child:Icon(Icons.play_arrow_rounded,size:30,color:Colors.white))),
+          ])))),
+      if(store.watching.isNotEmpty) ...[
+        const SliverToBoxAdapter(child:SectionHeading('Continue watching')),
+        SliverToBoxAdapter(child:SizedBox(height:180,child:ListView.separated(
+          padding:const EdgeInsets.symmetric(horizontal:18),scrollDirection:Axis.horizontal,
+          itemCount:store.watching.length,
+          separatorBuilder:(_,__)=>const SizedBox(width:10),
+          itemBuilder:(context,i)=>GestureDetector(
+            onTap:()=>openDetail(context,store,store.watching[i]),
+            child:SizedBox(width:130,child:Artwork(show:store.watching[i],height:175)))))),
+      ],
+      if(all.isNotEmpty) const SliverToBoxAdapter(child:SectionHeading(
+        'All stories',subtitle:'Tap a series to start watching.')),
+      if(all.isNotEmpty) SliverPadding(
+        padding:const EdgeInsets.fromLTRB(18,0,18,30),
+        sliver:SliverGrid.builder(
+          itemCount:all.length,
+          gridDelegate:const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount:2,crossAxisSpacing:12,mainAxisSpacing:12,childAspectRatio:.72),
+          itemBuilder:(context,i)=>GestureDetector(
+            onTap:()=>openDetail(context,store,all[i]),child:Artwork(show:all[i])))),
     ])));
   }
 }
@@ -189,13 +224,37 @@ class ExploreScreen extends StatefulWidget {
   State<ExploreScreen> createState()=>_ExploreScreenState();
 }
 class _ExploreScreenState extends State<ExploreScreen> {
-  final controller=TextEditingController();String genre='All';Timer? debounce;
+  final controller=TextEditingController();
+  String genre='All';
+  Timer? debounce;
+  int searchVersion=0;
+  bool searching=false;
+  List<KisaShow>? results;
   @override
   void dispose(){debounce?.cancel();controller.dispose();super.dispose();}
-  void search(){widget.store.reloadShows(query:controller.text.trim(),genre:genre=='All'?'':genre)
-    .catchError((Object error){if(mounted)notice(context,error.toString());});}
+  Future<void> search() async {
+    final query=controller.text.trim();
+    final selectedGenre=genre=='All'?'':genre;
+    final version=++searchVersion;
+    if(query.isEmpty && selectedGenre.isEmpty){
+      setState((){results=null;searching=false;});
+      return;
+    }
+    setState(()=>searching=true);
+    try {
+      final found=await widget.store.searchShows(query:query,genre:selectedGenre);
+      if(mounted && version==searchVersion)setState(() {results=found;searching=false;});
+    } catch (_) {
+      if(mounted && version==searchVersion){
+        setState(()=>searching=false);
+        notice(context,'Could not search right now. Please try again.');
+      }
+    }
+  }
   @override
-  Widget build(BuildContext context)=>SafeArea(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+  Widget build(BuildContext context) {
+    final movies=results??widget.store.shows;
+    return SafeArea(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
     const Padding(padding:EdgeInsets.fromLTRB(20,22,20,16),child:Text('Explore',style:TextStyle(fontSize:31,fontWeight:FontWeight.w900))),
     Padding(padding:const EdgeInsets.symmetric(horizontal:18),child:TextField(controller:controller,
       onChanged:(_){debounce?.cancel();debounce=Timer(const Duration(milliseconds:300),search);},
@@ -205,13 +264,16 @@ class _ExploreScreenState extends State<ExploreScreen> {
       padding:const EdgeInsets.symmetric(horizontal:18),children:['All','Romance','Mystery','Drama'].map((g)=>
       Padding(padding:const EdgeInsets.only(right:8),child:ChoiceChip(label:Text(g),selected:genre==g,
         selectedColor:coral,onSelected:(_){setState(()=>genre=g);search();}))).toList())),
-    const SizedBox(height:15),Expanded(child:widget.store.shows.isEmpty
-      ?const Center(child:Text('No stories found',style:TextStyle(color:pale)))
-      :GridView.builder(padding:const EdgeInsets.fromLTRB(18,4,18,20),
-      gridDelegate:const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount:2,
-        crossAxisSpacing:12,mainAxisSpacing:12,childAspectRatio:.7),
-      itemCount:widget.store.shows.length,itemBuilder:(context,i){final s=widget.store.shows[i];
-        return GestureDetector(onTap:()=>openDetail(context,widget.store,s),child:Artwork(show:s));}))]));
+    const SizedBox(height:15),Expanded(child:searching
+      ?const Center(child:CircularProgressIndicator(color:coral))
+      :movies.isEmpty
+        ?const Center(child:Text('No stories found',style:TextStyle(color:pale)))
+        :GridView.builder(padding:const EdgeInsets.fromLTRB(18,4,18,20),
+        gridDelegate:const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount:2,
+          crossAxisSpacing:12,mainAxisSpacing:12,childAspectRatio:.7),
+        itemCount:movies.length,itemBuilder:(context,i){final s=movies[i];
+          return GestureDetector(onTap:()=>openDetail(context,widget.store,s),child:Artwork(show:s));}))]));
+  }
 }
 
 class LibraryScreen extends StatelessWidget {
@@ -524,6 +586,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
   bool stalled=false;
   String? playbackError;
   List<KisaEpisode> episodes=[];
+  DateTime _lastPlayerRepaint = DateTime.fromMillisecondsSinceEpoch(0);
 
   @override
   void initState() {
@@ -583,7 +646,11 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
         pages.nextPage(duration:const Duration(milliseconds:310),curve:Curves.easeOutCubic);
       }
     }
-    if(mounted)setState((){});
+    final now = DateTime.now();
+    if(now.difference(_lastPlayerRepaint) >= const Duration(milliseconds: 250)) {
+      _lastPlayerRepaint = now;
+      setState((){});
+    }
   }
   Future<void> unlock(KisaEpisode ep) async {
     try {

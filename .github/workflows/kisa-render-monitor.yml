@@ -1,0 +1,30 @@
+name: KISA Render API availability check
+
+on:
+  schedule:
+    # Independent checks when every viewer has closed KISA. UTC.
+    - cron: '3,13,23,33,43,53 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    if: ${{ vars.KISA_RENDER_URL != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Check KISA API liveness
+        shell: bash
+        env:
+          KISA_RENDER_URL: ${{ vars.KISA_RENDER_URL }}
+        run: |
+          set -euo pipefail
+          url="${KISA_RENDER_URL%/}"
+          [[ "$url" == https://* ]] || { echo 'KISA_RENDER_URL must use HTTPS'; exit 1; }
+          curl --silent --show-error --fail --location \
+            --connect-timeout 12 --max-time 95 \
+            --retry 1 --retry-delay 2 \
+            "$url/ping" > /dev/null
+          echo 'KISA API responded successfully.'

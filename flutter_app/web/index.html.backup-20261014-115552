@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <base href="$FLUTTER_BASE_HREF">
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#100F19">
+  <meta name="description" content="KISA Stream — one more episode. Watch short drama series on your phone.">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="KISA">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <title>KISA Stream</title>
+  <style>
+    html,body{margin:0;background:#100F19;color:#fff;overscroll-behavior-y:none;}
+    #boot{position:fixed;inset:0;display:grid;place-content:center;text-align:center;font:800 36px system-ui;letter-spacing:7px;}
+    #boot p{font:400 12px system-ui;letter-spacing:1px;color:#a9a5b8;}
+  </style>
+</head>
+<body>
+  <div id="boot" role="status">KISA<p>ONE MORE EPISODE</p></div>
+  <script src="https://assets.mediadelivery.net/playerjs/player-0.1.0.min.js" defer></script>
+  <script src="kisa-bunny-bridge.js" defer></script>
+  <script src="flutter_bootstrap.js" async></script>
+  <script>
+    if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('/kisa-sw.js').catch(function () {});
+      });
+    }
+    // Flutter takes over the page; remove the static skeleton once it attaches its view.
+    new MutationObserver(function (_records, observer) {
+      if (document.querySelector('flutter-view')) { document.getElementById('boot')?.remove(); observer.disconnect(); }
+    }).observe(document.body, {childList:true,subtree:true});
+  </script>
+</body>
+</html>

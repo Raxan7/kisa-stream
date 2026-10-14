@@ -275,6 +275,11 @@ app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=Fals
 # `seed()` remains available for explicit LOCAL TEST FIXTURES only.
 # In particular, SEED_DEMO=true must not populate a hosted database.
 
+@app.get('/ping', include_in_schema=False)
+def ping():
+    # Respond without a database connection or authentication.
+    return {'ok': True}
+
 @app.get('/health')
 def health():
     with SessionLocal() as db:

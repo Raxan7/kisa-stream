@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'core/api.dart';
 import 'core/store.dart';
@@ -14,11 +15,57 @@ class KisaApp extends StatefulWidget {
   @override
   State<KisaApp> createState()=>_KisaAppState();
 }
-class _KisaAppState extends State<KisaApp> {
+class _KisaAppState extends State<KisaApp> with WidgetsBindingObserver {
+  static const heartbeatInterval = Duration(minutes: 5);
+  Timer? _heartbeat;
+  bool _pingInFlight = false;
+
   @override
-  void initState(){super.initState();widget.store.initialize();}
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    widget.store.initialize();
+    _startHeartbeat();
+  }
+
+  void _startHeartbeat() {
+    _heartbeat?.cancel();
+    _heartbeat = Timer.periodic(heartbeatInterval, (_) => _pingHealth());
+  }
+
+  Future<void> _pingHealth() async {
+    if (_pingInFlight || widget.store.loading) return;
+    _pingInFlight = true;
+    try {
+      // Lightweight API heartbeat; doesn't authenticate or alter user data.
+      await widget.store.api.ping();
+    } catch (_) {
+      // Health checks should never interrupt watching or show a popup.
+    } finally {
+      _pingInFlight = false;
+    }
+  }
+
   @override
-  void dispose(){widget.store.dispose();super.dispose();}
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _startHeartbeat();
+      unawaited(_pingHealth());
+    } else if (state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      _heartbeat?.cancel();
+      _heartbeat = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    _heartbeat?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    widget.store.dispose();
+    super.dispose();
+  }
   @override
   Widget build(BuildContext context) => MaterialApp(
     title:'KISA',debugShowCheckedModeBanner:false,

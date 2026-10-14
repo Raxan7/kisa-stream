@@ -23,18 +23,35 @@ class KisaApi {
   KisaApi({http.Client? client, FlutterSecureStorage? storage})
       : client = client ?? http.Client(), storage = storage ?? const FlutterSecureStorage();
 
+  // Cold-start recovery for sleeping free-tier APIs. The UI remains responsive
+  // and can display a warm-up message while transient connection errors retry.
+  Future<Map<String, dynamic>> _startupRequest(
+    Future<Map<String, dynamic>> Function() request,
+  ) async {
+    for (var attempt = 0; ; attempt++) {
+      try {
+        return await request();
+      } on ApiError catch (e) {
+        final transient = e.status == 0 ||
+            e.status == 502 || e.status == 503 || e.status == 504;
+        if (!transient || attempt >= 5) rethrow;
+        await Future<void>.delayed(const Duration(seconds: 2));
+      }
+    }
+  }
+
   Future<void> initialize() async {
     token = await storage.read(key: 'kisa_access_token');
     if (token != null) {
       try {
-        await get('/v1/me');
+        await _startupRequest(() => get('/v1/me'));
         return;
       } on ApiError catch (e) {
         if (e.status != 401) rethrow;
         await storage.delete(key: 'kisa_access_token');
       }
     }
-    final response = await post('/v1/auth/guest', {});
+    final response = await _startupRequest(() => post('/v1/auth/guest', {}));
     token = response['access_token'] as String;
     await storage.write(key: 'kisa_access_token', value: token);
   }
@@ -92,6 +109,13 @@ class KisaApi {
       final detail = kDebugMode ? ': $e' : '';
       throw ApiError(0, 'Request to $apiBaseUrl failed$detail');
     }
+  }
+
+  Future<bool> ping() async {
+    // Health traffic is intentionally anonymous and lightweight.
+    final response = await client.get(Uri.parse('$apiBaseUrl/ping'))
+        .timeout(const Duration(seconds: 12));
+    return response.statusCode == 200;
   }
 
   void close() => client.close();

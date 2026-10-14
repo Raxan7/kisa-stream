@@ -32,7 +32,6 @@ class _BunnyPlayerState extends State<BunnyPlayer> {
       final iframe = html.IFrameElement()
         ..src = widget.url
         ..allow = 'autoplay; encrypted-media; fullscreen; picture-in-picture'
-        ..allowFullscreen = true
         ..style.border = '0'
         ..style.width = '100%'
         ..style.height = '100%';
