@@ -239,8 +239,9 @@ if os.getenv('APP_ENV') != 'production':
         *origins, 'http://localhost:3000', 'http://127.0.0.1:3000',
     ]))
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=False, allow_methods=['GET','POST'], allow_headers=['Authorization','Content-Type','X-Admin-Key','X-Demo-Key'])
-if os.getenv('SEED_DEMO', 'true' if os.getenv('APP_ENV') != 'production' else 'false').lower() == 'true':
-    seed()
+# Never insert demonstration data on API startup or during deployment.
+# `seed()` remains available for explicit LOCAL TEST FIXTURES only.
+# In particular, SEED_DEMO=true must not populate a hosted database.
 
 @app.get('/health')
 def health():

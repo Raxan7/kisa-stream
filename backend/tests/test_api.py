@@ -11,8 +11,10 @@ os.environ['PAYMENT_MODE'] = 'demo'
 os.environ['DEMO_MODE'] = 'true'
 
 from fastapi.testclient import TestClient
-from app.main import app, SessionLocal, Payment
+from app.main import app, SessionLocal, Payment, seed
 
+# Tests explicitly opt in to demonstration fixtures. App boot never does.
+seed()
 client = TestClient(app)
 
 def account():
